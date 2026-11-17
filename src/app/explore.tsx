@@ -1,180 +1,165 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { cariKota, HasilKota } from "../api/geocoding";
+import { daftarRiwayat, hapusRiwayat, hapusSemuaRiwayat, tambahRiwayat } from "../db/database";
+import { zonaLabel } from "../utils/waktu";
 
-import { ExternalLink } from '@/components/external-link';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+export default function CariKota() {
+  const router = useRouter();
+  const [teks, setTeks] = useState("");
+  const [hasil, setHasil] = useState<HasilKota[]>([]);
+  const [riwayat, setRiwayat] = useState<HasilKota[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pesan, setPesan] = useState<string | null>(null);
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+  const muatRiwayat = useCallback(() => {
+    daftarRiwayat().then(setRiwayat).catch(() => setRiwayat([]));
+  }, []);
+
+  // Muat ulang riwayat setiap layar ini dibuka
+  useFocusEffect(useCallback(() => { muatRiwayat(); }, [muatRiwayat]));
+
+  // Debounce 400 ms agar tidak memanggil API di setiap ketukan
+  useEffect(() => {
+    if (teks.trim().length < 3) {
+      setHasil([]);
+      setPesan(null);
+      return;
+    }
+    let batal = false;
+    const t = setTimeout(async () => {
+      setLoading(true);
+      setPesan(null);
+      try {
+        const r = await cariKota(teks);
+        if (batal) return;
+        setHasil(r);
+        if (r.length === 0) setPesan("Kota tidak ditemukan.");
+      } catch (e: any) {
+        if (batal) return;
+        setHasil([]);
+        setPesan(e?.message ?? "Pencarian gagal. Coba lagi.");
+      } finally {
+        if (!batal) setLoading(false);
+      }
+    }, 400);
+    return () => {
+      batal = true;
+      clearTimeout(t);
+    };
+  }, [teks]);
+
+  const pilih = async (k: HasilKota) => {
+    try {
+      await tambahRiwayat(k);
+    } catch {}
+    router.navigate({
+      pathname: "/" as any,
+      params: {
+        t: String(Date.now()),
+        id: k.id,
+        nama: k.nama,
+        lat: String(k.lat),
+        lon: String(k.lon),
+        tz: k.timezone ?? "",
+      },
+    });
   };
-  const theme = useTheme();
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+  const hapusSatu = async (id: string) => {
+    await hapusRiwayat(id);
+    muatRiwayat();
+  };
+
+  const konfirmasiHapusSemua = () =>
+    Alert.alert("Hapus semua riwayat?", "Daftar pencarian terakhir akan dikosongkan.", [
+      { text: "Batal", style: "cancel" },
+      {
+        text: "Hapus",
+        style: "destructive",
+        onPress: async () => { await hapusSemuaRiwayat(); muatRiwayat(); },
+      },
+    ]);
+
+  // Kolom kosong atau kurang dari 3 huruf: tampilkan riwayat
+  const modeRiwayat = teks.trim().length < 3;
+  const data = modeRiwayat ? riwayat : hasil;
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <View style={s.layar}>
+      <TextInput
+        style={s.input}
+        placeholder="Masukkan nama kota..."
+        value={teks}
+        onChangeText={setTeks}
+        autoCorrect={false}
+        autoCapitalize="words"
+      />
+      {loading && <Text style={s.info}>Mencari...</Text>}
+      {pesan && <Text style={s.info}>{pesan}</Text>}
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
-
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
-
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+      <FlatList
+        data={data}
+        keyExtractor={(k, i) => `${k.id}-${i}`}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={
+          modeRiwayat && riwayat.length > 0
+            ? () => (
+                <View style={s.kepala}>
+                  <Text style={s.kepalaTeks}>Pencarian terakhir</Text>
+                  <Pressable onPress={konfirmasiHapusSemua} hitSlop={10}>
+                    <Text style={s.hapusSemua}>Hapus Semua</Text>
+                  </Pressable>
+                </View>
+              )
+            : undefined
+        }
+        ListEmptyComponent={
+          modeRiwayat
+            ? () => <Text style={s.info}>Ketik minimal 3 huruf untuk mencari kota.</Text>
+            : undefined
+        }
+        renderItem={({ item }) => (
+          <Pressable style={s.baris} onPress={() => pilih(item)}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.nama}>{item.nama}</Text>
+              <Text style={s.wilayah}>
+                {item.wilayah}
+                {item.wilayah && item.timezone ? "  •  " : ""}
+                {item.timezone ? zonaLabel(item.timezone) : ""}
+              </Text>
+            </View>
+            {modeRiwayat ? (
+              <Pressable onPress={() => hapusSatu(item.id)} hitSlop={12}>
+                <Text style={s.hapus}>✕</Text>
+              </Pressable>
+            ) : (
+              <Text style={s.panah}>›</Text>
+            )}
+          </Pressable>
+        )}
+      />
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
+const s = StyleSheet.create({
+  layar: { flex: 1, backgroundColor: "#FBF5EC", padding: 20, paddingTop: 16 },
+  input: {
+    backgroundColor: "#fff", borderRadius: 12, padding: 14,
+    fontSize: 16, borderWidth: 1, borderColor: "#E6D5BF", marginBottom: 8,
   },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+  info: { color: "#8B5A2B", marginVertical: 8 },
+  kepala: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, marginBottom: 4 },
+  kepalaTeks: { fontSize: 14, fontWeight: "600", color: "#8B7355" },
+  hapusSemua: { fontSize: 14, color: "#B00020" },
+  baris: {
+    flexDirection: "row", alignItems: "center", paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#D9C7AE",
   },
-  container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
-  },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
-  },
-  centerText: {
-    textAlign: 'center',
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
-    alignItems: 'center',
-  },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-  },
-  collapsibleContent: {
-    alignItems: 'center',
-  },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
-  },
+  nama: { fontSize: 17, color: "#3B2412", fontWeight: "600" },
+  wilayah: { fontSize: 13, color: "#8B7355", marginTop: 2 },
+  panah: { fontSize: 24, color: "#8B5A2B" },
+  hapus: { fontSize: 18, color: "#A08A6C", paddingLeft: 12 },
 });

@@ -1,18 +1,30 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { Stack } from "expo-router";
+import { useState } from "react";
+import SplashSajadah from "../components/SplashSajadah";
+import { aturPenangan } from "../utils/notifikasi";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+aturPenangan();
 
-SplashScreen.preventAutoHideAsync();
+export default function RootLayout() {
+  const [splashSelesai, setSplashSelesai] = useState(false);
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: "#FBF5EC" },
+          headerTintColor: "#5A3A1E",
+          headerTitleStyle: { fontWeight: "bold" },
+          contentStyle: { backgroundColor: "#FBF5EC" },
+          headerBackTitle: "Kembali",
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="kiblat" options={{ title: "Arah Kiblat" }} />
+        <Stack.Screen name="explore" options={{ title: "Cari Kota" }} />
+      </Stack>
+
+      {!splashSelesai && <SplashSajadah onSelesai={() => setSplashSelesai(true)} />}
+    </>
   );
 }
